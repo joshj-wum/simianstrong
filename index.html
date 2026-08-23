@@ -2714,6 +2714,7 @@ function ActiveWorkoutScreen({
     updateSet,
     addSet,
     finishWorkout,
+    discardWorkout,
     openAddPicker,
     openExerciseMenu,
     setRestTimer
@@ -2734,7 +2735,25 @@ function ActiveWorkoutScreen({
       marginBottom: 16,
       padding: "4px 0"
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: discardWorkout,
+    style: {
+      background: "none",
+      border: "none",
+      color: C.muted,
+      cursor: "pointer",
+      padding: 6,
+      display: "flex",
+      flexShrink: 0
+    },
+    title: "Discard workout"
+  }, Icons.x), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.heading,
       fontSize: 18
@@ -2749,7 +2768,7 @@ function ActiveWorkoutScreen({
     }
   }, /*#__PURE__*/React.createElement(ElapsedTimer, {
     startTime: activeWorkout.startTime
-  }))), /*#__PURE__*/React.createElement("button", {
+  })))), /*#__PURE__*/React.createElement("button", {
     onClick: finishWorkout,
     style: {
       ...S.btn,
@@ -4784,6 +4803,16 @@ function SimianStrong() {
     setRestTimer(null);
     setTab("history");
   }
+  function discardWorkout() {
+    setActiveWorkout(current => {
+      if (!current) return current;
+      const hasData = current.exercises.some(we => we.sets.some(s => s.completed));
+      const msg = hasData ? "Discard this workout? Logged sets will be lost. This can't be undone." : "Discard this workout?";
+      if (!window.confirm(msg)) return current;
+      return null;
+    });
+    setRestTimer(null);
+  }
   function updateHistoryWorkout(updated) {
     setHistory(h => h.map(w => w.id === updated.id ? updated : w));
   }
@@ -5094,6 +5123,7 @@ function SimianStrong() {
     toggleSetType,
     removeExercise,
     finishWorkout,
+    discardWorkout,
     updateHistoryWorkout,
     deleteHistoryWorkout,
     updateDraftSet,
