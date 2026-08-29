@@ -1656,7 +1656,10 @@ function makeSampleWorkouts() {
     }]
   }];
 }
-const getExercise = id => EXERCISES.find(e => e.id === id);
+const getExercise = id => EXERCISES.find(e => e.id === id) || CUSTOM_EXERCISES.find(e => e.id === id);
+// Kept in sync with React state (customExercises) by SimianStrong — lets getExercise(),
+// which is called unqualified all over the app, resolve custom exercises without prop drilling.
+let CUSTOM_EXERCISES = [];
 function configLabel(cfg) {
   if (!cfg) return "";
   const parts = [];
@@ -2180,17 +2183,26 @@ function ElapsedTimer({
 // only calls back up to parent (onSkip) for terminal/explicit actions ──
 function RestTimerWidget({
   restTimer,
-  onExtend,
-  onSkip
+  onSkip,
+  onComplete
 }) {
   const [remaining, setRemaining] = useState(restTimer.remaining);
   const totalRef = useRef(restTimer.total);
+  const firedRef = useRef(false);
   useEffect(() => {
     setRemaining(restTimer.remaining);
     totalRef.current = restTimer.total;
+    firedRef.current = false;
   }, [restTimer.key]);
   useEffect(() => {
-    if (remaining <= 0) return;
+    if (remaining <= 0) {
+      if (!firedRef.current) {
+        firedRef.current = true;
+        if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
+        onComplete();
+      }
+      return;
+    }
     const id = setInterval(() => setRemaining(r => Math.max(0, r - 1)), 1000);
     return () => clearInterval(id);
   }, [remaining > 0]);
@@ -2778,7 +2790,8 @@ function ActiveWorkoutScreen({
     }
   }, "FINISH")), restTimer && /*#__PURE__*/React.createElement(RestTimerWidget, {
     restTimer: restTimer,
-    onSkip: () => setRestTimer(null)
+    onSkip: () => setRestTimer(null),
+    onComplete: () => setRestTimer(null)
   }), activeWorkout.exercises.map((we, idx) => {
     const ex = getExercise(we.exerciseId);
     const prev = findPrevious(we.exerciseId, we.config);
@@ -2904,11 +2917,16 @@ function ExercisePickerModal({
   const {
     setShowConfig,
     setShowPicker,
-    onExercisePicked
+    onExercisePicked,
+    allExercises,
+    addCustomExercise
   } = app;
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("All");
-  const filtered = EXERCISES.filter(e => {
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newCat, setNewCat] = useState("Chest");
+  const filtered = allExercises.filter(e => {
     if (cat !== "All" && e.cat !== cat) return false;
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -2932,6 +2950,111 @@ function ExercisePickerModal({
       onExercisePicked(ex.id, cfg);
       setShowPicker(false);
     }
+  }
+  function openCreateForm() {
+    setNewName(search);
+    setShowCreateForm(true);
+  }
+  function submitNewExercise() {
+    const name = newName.trim();
+    if (!name) return;
+    const ex = {
+      id: "custom-" + uid(),
+      name,
+      cat: newCat,
+      custom: true,
+      equip: ["Barbell", "Dumbbell", "Machine", "Cable", "Bodyweight", "Other"]
+    };
+    addCustomExercise(ex);
+    selectExercise(ex);
+  }
+  if (showCreateForm) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        position: "fixed",
+        inset: 0,
+        background: C.bg,
+        zIndex: 200,
+        display: "flex",
+        flexDirection: "column",
+        maxWidth: 480,
+        margin: "0 auto"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: "16px",
+        borderBottom: `1px solid ${C.divider}`,
+        display: "flex",
+        alignItems: "center",
+        gap: 12
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: () => setShowCreateForm(false),
+      style: {
+        background: "none",
+        border: "none",
+        color: C.text,
+        cursor: "pointer"
+      }
+    }, Icons.back), /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.heading,
+        fontSize: 16
+      }
+    }, "NEW EXERCISE")), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        overflowY: "auto",
+        padding: "16px"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.label,
+        marginBottom: 6
+      }
+    }, "NAME"), /*#__PURE__*/React.createElement("input", {
+      value: newName,
+      onChange: e => setNewName(e.target.value),
+      placeholder: "e.g. Landmine Press",
+      autoFocus: true,
+      style: {
+        ...S.input,
+        textAlign: "left",
+        fontSize: 15,
+        fontWeight: 700,
+        marginBottom: 20
+      }
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...S.label,
+        marginBottom: 8
+      }
+    }, "CATEGORY"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 0
+      }
+    }, CATEGORIES.filter(c => c !== "All").map(c => /*#__PURE__*/React.createElement("span", {
+      key: c,
+      onClick: () => setNewCat(c),
+      style: {
+        ...S.chip,
+        ...(newCat === c ? S.chipActive : {})
+      }
+    }, c)))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 16,
+        borderTop: `1px solid ${C.divider}`
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: submitNewExercise,
+      disabled: !newName.trim(),
+      style: {
+        ...S.btn,
+        opacity: newName.trim() ? 1 : 0.5
+      }
+    }, "CREATE & ADD")));
   }
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3014,6 +3137,21 @@ function ExercisePickerModal({
     }
   }, c))), /*#__PURE__*/React.createElement("div", {
     style: {
+      padding: "0 16px 8px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: openCreateForm,
+    style: {
+      ...S.btnOutline,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 6,
+      borderStyle: "dashed",
+      padding: "10px 0"
+    }
+  }, Icons.plus, " CREATE CUSTOM EXERCISE")), /*#__PURE__*/React.createElement("div", {
+    style: {
       flex: 1,
       overflowY: "auto",
       padding: "0 16px"
@@ -3042,7 +3180,7 @@ function ExercisePickerModal({
       color: C.muted,
       marginTop: 2
     }
-  }, ex.cat, ex.secondary?.length ? ` · ${ex.secondary.join(", ")}` : "")), /*#__PURE__*/React.createElement("span", {
+  }, ex.cat, ex.secondary?.length ? ` · ${ex.secondary.join(", ")}` : "", ex.custom ? " · Custom" : "")), /*#__PURE__*/React.createElement("span", {
     style: {
       color: C.muted
     }
@@ -3551,11 +3689,12 @@ function ExercisesScreen({
 }) {
   const {
     setProgressExercise,
-    setTab
+    setTab,
+    allExercises
   } = app;
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("All");
-  const filtered = EXERCISES.filter(e => {
+  const filtered = allExercises.filter(e => {
     if (cat !== "All" && e.cat !== cat) return false;
     if (search && !e.name.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -4216,7 +4355,8 @@ function ProgressScreen({
   const {
     history,
     progressExercise,
-    setProgressExercise
+    setProgressExercise,
+    allExercises
   } = app;
   const [selEx, setSelEx] = useState(progressExercise || null);
   const [search, setSearch] = useState("");
@@ -4247,7 +4387,7 @@ function ProgressScreen({
   const best1RM = perfData.length ? Math.max(...perfData.map(p => p.e1rm)) : 0;
   const bestVol = perfData.length ? Math.max(...perfData.map(p => p.volume)) : 0;
   if (!selEx) {
-    const filtered = EXERCISES.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()));
+    const filtered = allExercises.filter(e => !search || e.name.toLowerCase().includes(search.toLowerCase()));
     const withHistory = filtered.filter(ex => history.some(w => w.exercises.some(we => we.exerciseId === ex.id)));
     return /*#__PURE__*/React.createElement("div", {
       style: {
@@ -4589,24 +4729,7 @@ function SimianStrong() {
   const [progressExercise, setProgressExercise] = useState(null);
   const [exerciseMenuFor, setExerciseMenuFor] = useState(null);
   const [flashSet, setFlashSet] = useState(null);
-  const restRef = useRef(null);
-  useEffect(() => {
-    if (restTimer && restTimer.remaining > 0) {
-      restRef.current = setInterval(() => {
-        setRestTimer(prev => {
-          if (!prev || prev.remaining <= 1) {
-            clearInterval(restRef.current);
-            return null;
-          }
-          return {
-            ...prev,
-            remaining: prev.remaining - 1
-          };
-        });
-      }, 1000);
-      return () => clearInterval(restRef.current);
-    }
-  }, [restTimer?.key]);
+  const [customExercises, setCustomExercises] = useState(() => store.get("ss-custom-exercises") || []);
   useEffect(() => {
     if (activeWorkout) store.set("ss-active", activeWorkout);else store.remove("ss-active");
   }, [activeWorkout]);
@@ -4616,6 +4739,13 @@ function SimianStrong() {
   useEffect(() => {
     store.set("ss-routines", routines);
   }, [routines]);
+  useEffect(() => {
+    CUSTOM_EXERCISES = customExercises;
+    store.set("ss-custom-exercises", customExercises);
+  }, [customExercises]);
+  function addCustomExercise(ex) {
+    setCustomExercises(list => [...list, ex]);
+  }
   function startEmptyWorkout() {
     setActiveWorkout({
       id: uid(),
@@ -5083,6 +5213,7 @@ function SimianStrong() {
     return new Date(y, m - 1, d, hh, mi, 0).getTime();
   }
   const lastWorkout = history[0];
+  const allExercises = useMemo(() => [...EXERCISES, ...customExercises], [customExercises]);
   const app = {
     tab,
     setTab,
@@ -5112,6 +5243,9 @@ function SimianStrong() {
     setExerciseMenuFor,
     flashSet,
     lastWorkout,
+    customExercises,
+    allExercises,
+    addCustomExercise,
     startEmptyWorkout,
     startRoutine,
     findPrevious,
