@@ -1,4 +1,4 @@
-const CACHE = "simian-strong-v1";
+const CACHE = "simian-strong-v2";
 const SHELL = [
   "./",
   "./index.html",
