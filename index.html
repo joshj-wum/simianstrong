@@ -2179,73 +2179,124 @@ function ElapsedTimer({
   return /*#__PURE__*/React.createElement("span", null, fmtTime(elapsed * 1000));
 }
 
-// ─── Rest timer widget: also self-contained. Ticks its own local state;
-// only calls back up to parent (onSkip) for terminal/explicit actions ──
+// ─── Haptics: Vibration API where supported (Android/Chrome). iOS Safari has
+// no Vibration API, so fall back to toggling a hidden native switch, which
+// triggers a system haptic tick on iOS 18+ (best-effort, ignored elsewhere) ──
+function vibrateDevice(pattern) {
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      if (navigator.vibrate(pattern)) return;
+    }
+  } catch (e) {}
+  try {
+    const pulses = Array.isArray(pattern) ? Math.ceil(pattern.length / 2) : 1;
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("switch", "");
+    label.appendChild(input);
+    label.style.cssText = "position:fixed;left:-9999px;opacity:0;pointer-events:none;";
+    document.body.appendChild(label);
+    for (let i = 0; i < pulses; i++) setTimeout(() => label.click(), i * 420);
+    setTimeout(() => label.remove(), pulses * 420 + 100);
+  } catch (e) {}
+}
+
+// ─── Rest timer widget: self-contained, floats above the bottom nav so it
+// stays visible while scrolling. Counts down against a wall-clock end time
+// (so it stays accurate if the phone sleeps or the tab is backgrounded) and
+// vibrates the phone when it hits zero ──
 function RestTimerWidget({
   restTimer,
   onSkip,
-  onComplete
+  onComplete,
+  onExtend,
+  navHidden
 }) {
-  const [remaining, setRemaining] = useState(restTimer.remaining);
-  const totalRef = useRef(restTimer.total);
+  const endAt = restTimer.endAt;
+  const calc = () => Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+  const [remaining, setRemaining] = useState(calc);
   const firedRef = useRef(false);
   useEffect(() => {
-    setRemaining(restTimer.remaining);
-    totalRef.current = restTimer.total;
     firedRef.current = false;
   }, [restTimer.key]);
   useEffect(() => {
-    if (remaining <= 0) {
-      if (!firedRef.current) {
-        firedRef.current = true;
-        if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
-        onComplete();
-      }
-      return;
-    }
-    const id = setInterval(() => setRemaining(r => Math.max(0, r - 1)), 1000);
-    return () => clearInterval(id);
-  }, [remaining > 0]);
+    const tick = () => setRemaining(calc());
+    tick();
+    const id = setInterval(tick, 250);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [endAt]);
+  useEffect(() => {
+    if (remaining > 0 || firedRef.current) return;
+    firedRef.current = true;
+    vibrateDevice([400, 150, 400, 150, 400]);
+    onComplete();
+  }, [remaining]);
+  const total = restTimer.total || 1;
   return /*#__PURE__*/React.createElement("div", {
     style: {
+      position: "fixed",
+      left: 0,
+      right: 0,
+      bottom: navHidden ? "calc(12px + env(safe-area-inset-bottom))" : "calc(72px + env(safe-area-inset-bottom))",
+      zIndex: 150,
+      display: "flex",
+      justifyContent: "center",
+      padding: "0 12px",
+      pointerEvents: "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      maxWidth: 456,
       background: C.surface,
-      borderRadius: 10,
-      padding: "12px 16px",
-      marginBottom: 12,
-      border: `1px solid ${C.accent}44`
+      borderRadius: 12,
+      padding: "10px 14px",
+      border: `1px solid ${C.accent}66`,
+      boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+      pointerEvents: "auto"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "center"
+      alignItems: "center",
+      gap: 10
     }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      minWidth: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     style: {
       ...S.label,
       fontSize: 10,
-      color: C.accent
+      color: C.accent,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis"
     }
-  }, "REST"), /*#__PURE__*/React.createElement("div", {
+  }, "REST", restTimer.exerciseName ? ` · ${restTimer.exerciseName}` : ""), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 28,
+      fontSize: 26,
       fontWeight: 800,
       letterSpacing: "0.02em",
       color: C.text,
-      fontVariantNumeric: "tabular-nums"
+      fontVariantNumeric: "tabular-nums",
+      lineHeight: 1.1
     }
   }, fmtTime(remaining * 1000))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8
+      gap: 8,
+      flexShrink: 0
     }
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      setRemaining(r => {
-        totalRef.current += 30;
-        return r + 30;
-      });
-    },
+    onClick: () => onExtend(30),
     style: {
       ...S.btnOutline,
       width: "auto",
@@ -2267,7 +2318,7 @@ function RestTimerWidget({
       height: 3,
       background: C.divider,
       borderRadius: 2,
-      marginTop: 10,
+      marginTop: 8,
       overflow: "hidden"
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -2275,10 +2326,10 @@ function RestTimerWidget({
       height: "100%",
       background: C.accent,
       borderRadius: 2,
-      transition: "width 1s linear",
-      width: `${Math.max(0, remaining / totalRef.current * 100)}%`
+      transition: "width 0.25s linear",
+      width: `${Math.min(100, Math.max(0, remaining / total * 100))}%`
     }
-  })));
+  }))));
 }
 
 // ─── Exercise action sheet: rename / replace / reorder / remove ─────
@@ -2788,11 +2839,7 @@ function ActiveWorkoutScreen({
       padding: "10px 20px",
       fontSize: 12
     }
-  }, "FINISH")), restTimer && /*#__PURE__*/React.createElement(RestTimerWidget, {
-    restTimer: restTimer,
-    onSkip: () => setRestTimer(null),
-    onComplete: () => setRestTimer(null)
-  }), activeWorkout.exercises.map((we, idx) => {
+  }, "FINISH")), activeWorkout.exercises.map((we, idx) => {
     const ex = getExercise(we.exerciseId);
     const prev = findPrevious(we.exerciseId, we.config);
     const label = configLabel(we.config);
@@ -3343,6 +3390,31 @@ function ConfigSection({
     }
   }, opt))));
 }
+// ─── Build a new routine from a logged workout: keeps exercise order,
+// variations, custom names and rest; derives set count and rep range ──
+function routineFromWorkout(w) {
+  return {
+    id: uid(),
+    name: `${(w.name || "Workout").trim()} (New)`,
+    exercises: (w.exercises || []).map(we => {
+      const working = (we.sets || []).filter(s => s.type !== "warmup");
+      const reps = working.map(s => Number(s.reps)).filter(n => Number.isFinite(n) && n > 0);
+      const lo = reps.length ? Math.min(...reps) : null;
+      const hi = reps.length ? Math.max(...reps) : null;
+      return {
+        exerciseId: we.exerciseId,
+        config: we.config ? JSON.parse(JSON.stringify(we.config)) : we.config,
+        ...(we.customName ? {
+          customName: we.customName
+        } : {}),
+        sets: Math.max(1, working.length || (we.sets || []).length || 3),
+        repRange: lo == null ? "8-12" : lo === hi ? String(lo) : `${lo}-${hi}`,
+        rir: 1,
+        rest: we.rest || 120
+      };
+    })
+  };
+}
 function RoutineEditScreen({
   app
 }) {
@@ -3537,7 +3609,23 @@ function RoutineEditScreen({
       borderStyle: "dashed",
       padding: "14px 0"
     }
-  }, Icons.plus, " ADD EXERCISE"), !isNew && /*#__PURE__*/React.createElement("button", {
+  }, Icons.plus, " ADD EXERCISE"), !isNew && r.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const copy = JSON.parse(JSON.stringify(r));
+      setEditingRoutine({
+        ...copy,
+        id: uid(),
+        name: `${r.name.trim() || "Routine"} (New)`
+      });
+      window.scrollTo(0, 0);
+    },
+    style: {
+      ...S.btnOutline,
+      marginBottom: 12,
+      borderColor: C.accent,
+      color: C.accent
+    }
+  }, "BUILD NEW ROUTINE FROM THIS"), !isNew && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (window.confirm("Delete this routine? This can't be undone.")) {
         deleteRoutine(r.id);
@@ -3800,7 +3888,9 @@ function HistoryEditScreen({
     toDateInputValue,
     toTimeInputValue,
     combineDateTime,
-    openExerciseMenu
+    openExerciseMenu,
+    setEditingRoutine,
+    setTab
   } = app;
   const dateVal = toDateInputValue(w.startTime);
   const timeVal = toTimeInputValue(w.startTime);
@@ -4119,7 +4209,21 @@ function HistoryEditScreen({
       borderStyle: "dashed",
       padding: "14px 0"
     }
-  }, Icons.plus, " ADD EXERCISE"), /*#__PURE__*/React.createElement("button", {
+  }, Icons.plus, " ADD EXERCISE"), w.exercises.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setEditingRoutine(routineFromWorkout(w));
+      setEditingHistoryWorkout(null);
+      setViewingWorkout(null);
+      setTab("routines");
+      window.scrollTo(0, 0);
+    },
+    style: {
+      ...S.btnOutline,
+      marginBottom: 12,
+      borderColor: C.accent,
+      color: C.accent
+    }
+  }, "BUILD NEW ROUTINE FROM THIS"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (window.confirm("Delete this workout? This can't be undone.")) {
         deleteHistoryWorkout(w.id);
@@ -4859,6 +4963,7 @@ function SimianStrong() {
           key: uid(),
           remaining: rest,
           total: rest,
+          endAt: Date.now() + rest * 1000,
           exerciseName: exerciseDisplayName(we, ex)
         });
       }
@@ -5284,11 +5389,24 @@ function SimianStrong() {
   return /*#__PURE__*/React.createElement("div", {
     style: S.app
   }, /*#__PURE__*/React.createElement("div", {
-    style: S.scrollArea
+    style: restTimer ? {
+      ...S.scrollArea,
+      paddingBottom: 180
+    } : S.scrollArea
   }, /*#__PURE__*/React.createElement(AppScreen, {
     app: app
   })), /*#__PURE__*/React.createElement(BottomNav, {
     app: app
+  }), restTimer && /*#__PURE__*/React.createElement(RestTimerWidget, {
+    restTimer: restTimer,
+    navHidden: !!(showPicker || showConfig),
+    onSkip: () => setRestTimer(null),
+    onComplete: () => setRestTimer(null),
+    onExtend: secs => setRestTimer(t => t && {
+      ...t,
+      endAt: (t.endAt || Date.now()) + secs * 1000,
+      total: t.total + secs
+    })
   }), /*#__PURE__*/React.createElement(ExerciseActionSheet, {
     app: app
   }));
