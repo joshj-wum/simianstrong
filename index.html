@@ -2210,7 +2210,8 @@ function RestTimerWidget({
   restTimer,
   onSkip,
   onComplete,
-  onExtend
+  onExtend,
+  navHidden
 }) {
   const endAt = restTimer.endAt;
   const calc = () => Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
@@ -2241,7 +2242,7 @@ function RestTimerWidget({
       position: "fixed",
       left: 0,
       right: 0,
-      bottom: "calc(72px + env(safe-area-inset-bottom))",
+      bottom: navHidden ? "calc(12px + env(safe-area-inset-bottom))" : "calc(72px + env(safe-area-inset-bottom))",
       zIndex: 150,
       display: "flex",
       justifyContent: "center",
@@ -2787,7 +2788,6 @@ function ActiveWorkoutScreen({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: "12px 16px",
-      paddingBottom: restTimer ? 96 : 12,
       position: "relative"
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -2839,16 +2839,7 @@ function ActiveWorkoutScreen({
       padding: "10px 20px",
       fontSize: 12
     }
-  }, "FINISH")), restTimer && /*#__PURE__*/React.createElement(RestTimerWidget, {
-    restTimer: restTimer,
-    onSkip: () => setRestTimer(null),
-    onComplete: () => setRestTimer(null),
-    onExtend: secs => setRestTimer(t => t && {
-      ...t,
-      endAt: (t.endAt || Date.now()) + secs * 1000,
-      total: t.total + secs
-    })
-  }), activeWorkout.exercises.map((we, idx) => {
+  }, "FINISH")), activeWorkout.exercises.map((we, idx) => {
     const ex = getExercise(we.exerciseId);
     const prev = findPrevious(we.exerciseId, we.config);
     const label = configLabel(we.config);
@@ -5398,11 +5389,24 @@ function SimianStrong() {
   return /*#__PURE__*/React.createElement("div", {
     style: S.app
   }, /*#__PURE__*/React.createElement("div", {
-    style: S.scrollArea
+    style: restTimer ? {
+      ...S.scrollArea,
+      paddingBottom: 180
+    } : S.scrollArea
   }, /*#__PURE__*/React.createElement(AppScreen, {
     app: app
   })), /*#__PURE__*/React.createElement(BottomNav, {
     app: app
+  }), restTimer && /*#__PURE__*/React.createElement(RestTimerWidget, {
+    restTimer: restTimer,
+    navHidden: !!(showPicker || showConfig),
+    onSkip: () => setRestTimer(null),
+    onComplete: () => setRestTimer(null),
+    onExtend: secs => setRestTimer(t => t && {
+      ...t,
+      endAt: (t.endAt || Date.now()) + secs * 1000,
+      total: t.total + secs
+    })
   }), /*#__PURE__*/React.createElement(ExerciseActionSheet, {
     app: app
   }));
